@@ -1,95 +1,205 @@
-# Manufacturing Quality Monitoring and Failure Investigation
+﻿# Manufacturing Quality Monitoring and Failure Investigation
 
-A portfolio project that uses the anonymized [Bosch Production Line Performance dataset](https://www.kaggle.com/competitions/bosch-production-line-performance/overview) to explore manufacturing quality data. The goal is to build a reproducible pipeline and an investigation dashboard that help identify changes in final quality outcomes and prioritize follow-up analysis.
+A local analytics project using the anonymized Bosch Production Line Performance dataset to investigate final quality outcomes, recorded station exposure, and production-line combinations. Python loaders prepare the data, DuckDB runs the SQL analysis, and Streamlit presents the results.
 
-## Project questions
+## Current status
 
-- How many parts were processed, and what proportion failed final quality control?
-- Do failure rates change across groups of parts or production paths?
-- Which station visits and measurements are associated with higher failure rates?
-- Could missing or inconsistent data affect an apparent trend?
+Implemented: parts and station ingestion, mapped measurement export to Parquet, ingestion validation, SQL metric views, cohort and station comparisons, and a Streamlit dashboard. The project runs locally; scheduled orchestration, streaming ingestion, and distributed processing are not implemented.
 
-## Planned workflow
+The saved [validation report](reports/phase3_validation.json), generated on September 28, 2026, records a passing run:
 
-1. **Profile the data:** Inspect the numeric and date files, IDs, labels, missing values, and station fields.
-2. **Ingest and validate:** Load the CSV files and check schema, duplicate IDs, label values, row counts, and join coverage.
-3. **Model metrics:** Create part-level and station-exposure tables with documented SQL definitions.
-4. **Investigate:** Compare affected groups with a baseline and document the evidence and remaining questions.
-5. **Present:** Build a Streamlit dashboard for trends, data-quality checks, and investigation drill-downs.
-6. **Operationalize:** Add Airflow orchestration and Spark processing after the initial workflow is working.
+| Measure | Recorded result |
+| --- | ---: |
+| Parts | 1,183,747 |
+| Failed parts | 6,879 |
+| Station observations | 14,382,158 |
+| Distinct stations | 52 |
+| Mapped measurements | 112,772,532 |
+| Mapped numeric features | 366 |
+| Measurements missing a matched timestamp | 0 |
 
-## Initial technology stack
+These are saved validation results, not a live check of your local database.
 
-Python, pandas, SQL, PostgreSQL, Streamlit, Apache Spark, and Apache Airflow. Tools will be added as the relevant phase is implemented.
+## Questions explored
 
-## Data source
+- What is the overall final failure rate?
+- How does the final failure rate vary by recorded station and line combination?
+- How do parts observed at L3_S32 compare with other parts on L3?
+- Does that comparison change within recorded line groups or time cohorts?
+- What measurement coverage and missing-data limitations affect interpretation?
 
-The Bosch dataset contains anonymized production-line measurements and a final quality outcome for each part. Download the data through Kaggle and place the training files in `data/raw/`. Source data is excluded from Git.
+## Architecture and data model
 
-## DuckDB commands
-
-Run these commands from the project root with your Python virtual environment activated.
-
-Install the DuckDB Python package:
-
-```powershell
-python -m pip install duckdb
+```text
+train_numeric.csv + train_date.csv
+    |
+    +-- parts and station loaders --> quality.duckdb
+    |                                  |
+    |                                  +-- metric views --> Streamlit
+    |
+    +-- mapped measurement loader --> mapped_measurements.parquet
+                                       |
+                                       +-- DuckDB mapped_measurements view
 ```
 
-Create the tables, load the training CSVs, and validate the stored data:
+| Object | Storage / grain | Purpose |
+| --- | --- | --- |
+| `parts` | DuckDB table; one row per part | Part ID and final binary `response` |
+| `station_visits` | DuckDB table; one row per observed part/station pair | Earliest and latest recorded station timestamps |
+| `mapped_measurements` | DuckDB view over Parquet; one row per non-missing mapped measurement | Measurement value, station, feature, matched date feature, and timestamp |
+| `measurements` | Optional DuckDB table | Earlier pilot storage; not populated by the current Parquet loader |
+| `overall_quality_metrics` | DuckDB view | Part count, failure count, and failure rate |
+| `station_exposure_metrics` | DuckDB view | Station exposure counts and associated final failure rates |
+| `production_path_metrics` | DuckDB view | Counts and failure rates by recorded line combination |
+
+The active measurement loader pairs a feature named `Lx_Sy_Fn` with `Lx_Sy_D(n+1)` when that date column exists. It expects 366 matching pairs. The other 602 numeric features remain in the raw CSV; this project has not established their individual measurement times. Matching column names is the implemented rule, not independent proof of the physical meaning of the timestamps.
+
+## Repository layout
+
+```text
+pipelines/load_full.py         Combined parts and station-visits entry point
+src/                          Table creation and data loaders
+sql/schema/                   Table definitions
+sql/metrics/                  Reusable metric views
+sql/analysis/                 Station, line-group, and cohort queries
+sql/validation/               Measurement validation queries
+validations/                  Source profiling and ingestion checks
+streamlit/app.py              Dashboard
+reports/phase3_validation.json Saved ingestion validation report
+run_sql_file.py                SQL file runner
+requirements.txt              Existing environment dependency snapshot
+data/raw/                     Input CSVs (excluded from Git)
+data/processed/               DuckDB and Parquet outputs (excluded from Git)
+```
+
+## Setup
+
+Run all commands below from the repository root. Examples use Windows PowerShell and assume Python is installed.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install duckdb pandas numpy pyarrow streamlit
+```
+
+These packages cover the current ingestion, validation, and dashboard workflow. `requirements.txt` contains a broader environment snapshot but currently omits DuckDB and Streamlit, so it is not a complete dependency lock for this application.
+
+Download the training data from the [Bosch Production Line Performance competition](https://www.kaggle.com/competitions/bosch-production-line-performance) and extract these files:
+
+```text
+data/raw/train_numeric.csv
+data/raw/train_date.csv
+```
+
+The documented workflow does not require the categorical training file. Keep the raw files and generated data out of Git; the repository already ignores the raw and processed directories.
+
+## Build the database
+
+### 1. Create the core tables
 
 ```powershell
 python src/create_database.py parts
 python src/create_database.py station_visits
+```
+
+The table name selects its definition from `sql/schema/`. Creating the optional pilot table uses `python src/create_database.py measurements`; it is not required for the Parquet measurement workflow or dashboard.
+
+### 2. Load parts and station visits
+
+```powershell
 python pipelines/load_full.py
 python validations/validate_load.py
 ```
 
-The full loader replaces existing records in `data/processed/quality.duckdb`.
+The combined loader replaces both tables in one transaction. A failure rolls back both replacements. It processes 10,000-row batches and expects 1,183,747 parts. It does not load measurements or build metric views.
 
-To load each table separately, run the parts pipeline first:
+To refresh the tables separately, load parts first:
 
 ```powershell
 python src/load_parts.py
 python src/load_station_visits.py
-python validations/validate_load.py
 ```
 
-The parts pipeline reads `train_numeric.csv`; the station-visits pipeline reads
-`train_date.csv` and checks that its IDs match the loaded parts, regardless of row
-order. Each command replaces only its own table in a transaction. If a separate
-station-visits run fails, the completed parts load remains committed. Use
-`python pipelines/load_full.py` to load both tables in a single transaction instead.
+Each standalone run replaces only its own table. The station loader checks date IDs against loaded parts and accepts a different CSV row order. If a separate station load fails, the previously completed parts load remains committed.
 
-Open the same database in the DuckDB browser UI using the CLI:
+### 3. Load mapped measurements
+
+```powershell
+python validations/check_feature_mapping.py
+python src/load_mapped_measurements.py
+```
+
+The loader reads both CSVs in matching 500-row batches, checks ID alignment, and writes non-missing measurements to Snappy-compressed Parquet. Unlike the station loader, this step requires the numeric and date rows to have matching IDs in the same order.
+
+It writes `data/processed/mapped_measurements.pending.parquet`, checks the completed file's row count, then renames it to `mapped_measurements.parquet`. Finally, it creates the `mapped_measurements` DuckDB view. The pilot `measurements` table remains untouched.
+
+This is a one-shot load: the script refuses to run if either the pending or final file already exists. Inspect an interrupted pending file before manually removing or archiving it. A completed Parquet file is not automatically overwritten. Parquet publication and DuckDB view creation are separate steps, not one transaction.
+
+### 4. Validate the full ingestion
+
+```powershell
+python validations/check_ingestion.py
+python run_sql_file.py sql/validation/validate_measurements.sql
+```
+
+`check_ingestion.py` compares loaded counts, mapped feature coverage, missing timestamps, source header sizes, and Parquet row counts. It writes `reports/phase3_validation.json` and exits with an error if any defined check fails. The report includes header hashes, not hashes of the complete source files.
+
+`validate_load.py` prints core table counts and checks such as orphan visits and invalid time order. It is a diagnostic report; it does not automatically fail on every unexpected count.
+
+### 5. Create metric views
+
+```powershell
+python run_sql_file.py sql/metrics/quality_metrics.sql
+python run_sql_file.py sql/metrics/production_path_metrics.sql
+```
+
+These scripts create or replace the views consumed by the dashboard. They must be run before launching it.
+
+## Launch the dashboard
+
+```powershell
+python -m streamlit run streamlit/app.py
+```
+
+The dashboard opens the database read-only and displays:
+
+- Total parts, failed parts, and the final failure rate.
+- The 15 highest failure-rate stations among those with at least 1,000 observed parts, plus a station table.
+- Recorded production-line combinations and their failure rates.
+- L3_S32 versus other L3 parts, including comparisons within recorded line groups.
+
+The dashboard requires the two core tables and the three metric views. It does not currently query `mapped_measurements`, so the measurement export can be skipped when only setting up the dashboard. Queries are cached; clear the Streamlit cache or restart the app after refreshing the data.
+
+## Run SQL analyses
+
+Pass a saved SQL file to the runner:
+
+```powershell
+python run_sql_file.py sql/analysis/check_failure.sql
+python run_sql_file.py sql/analysis/same_line_failure.sql
+python run_sql_file.py sql/analysis/cohort_analysis.sql
+python run_sql_file.py sql/analysis/s32_analysis.sql
+```
+
+The runner executes the file and prints the final statement's result. `s32_analysis.sql` requires the `mapped_measurements` view; the other listed analyses use the core tables.
+
+For interactive inspection, install the DuckDB CLI separately and run:
 
 ```powershell
 duckdb -ui data/processed/quality.duckdb
 ```
 
-Keep the terminal running while using the UI. The UI requires write access to
-store notebooks, so omit `-readonly`. See the [DuckDB UI documentation](https://duckdb.org/docs/current/core_extensions/ui).
+Keep the terminal running while using the browser UI. See the [DuckDB UI documentation](https://duckdb.org/docs/current/core_extensions/ui).
 
-## SQL folders
+## Profiling tools
 
-- `sql/schema/`: table definitions.
-- `sql/metrics/`: reusable metric views.
-- `sql/analysis/`: failure, station, and cohort analysis queries.
-- `sql/validation/`: data validation queries.
+The `validations/` directory also contains `inspect_headers.py`, `profile_sample.py`, `profile_ids.py`, and `profile_stations.py` for inspecting source structure, sample data, IDs, and stations. These are optional exploratory steps; they are not called by `pipelines/load_full.py`.
 
-Run a saved query from the project root:
+## Interpretation limits and next steps
 
-```powershell
-python run_sql_file.py sql/analysis/check_failure.sql
-```
+`Response` describes the final part outcome: 1 indicates failure and 0 indicates non-failure. It does not locate the failure at a particular station or time. A station visit means at least one timestamp was recorded there; its minimum and maximum timestamps are observed bounds, not confirmed arrival and departure times.
 
-Table creation commands such as `python src/create_database.py parts` automatically
-read the matching file in `sql/schema/`.
+Recorded line combinations describe which lines appear in the data, not the exact sequence of a production route. Station and cohort comparisons are observational: differences can reflect product mix, routing, time, or other unobserved conditions. Associations do not establish a physical root cause.
 
-## Interpretation limits
-
-The dataset’s features and production details are anonymized. An association between a station visit or measurement and a failed part does **not** establish a physical root cause. This is an independent portfolio project, not professional manufacturing experience.
-
-## Status
-
-**Phase 1 — repository setup.** Data profiling and ingestion are next.
+Future work could add repeatable dependency locking, automated regression tests, batch tracking and resumable ingestion, scheduled validation, and deeper measurement-level investigations. This is an independent portfolio project using anonymized data.
