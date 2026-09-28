@@ -26,6 +26,35 @@ Python, pandas, SQL, PostgreSQL, Streamlit, Apache Spark, and Apache Airflow. To
 
 The Bosch dataset contains anonymized production-line measurements and a final quality outcome for each part. Download the data through Kaggle and place the training files in `data/raw/`. Source data is excluded from Git.
 
+## DuckDB commands
+
+Run these commands from the project root with your Python virtual environment activated.
+
+Install the DuckDB Python package:
+
+```powershell
+python -m pip install duckdb
+```
+
+Create the tables, load the training CSVs, and validate the stored data:
+
+```powershell
+python src/create_database.py
+python src/load_full.py
+python validations/validate_load.py
+```
+
+The full loader replaces existing records in `data/processed/quality.duckdb`.
+
+Open the same database in the DuckDB browser UI using the CLI:
+
+```powershell
+duckdb -ui data/processed/quality.duckdb
+```
+
+Keep the terminal running while using the UI. The UI requires write access to
+store notebooks, so omit `-readonly`. See the [DuckDB UI documentation](https://duckdb.org/docs/current/core_extensions/ui).
+
 ## Interpretation limits
 
 The dataset’s features and production details are anonymized. An association between a station visit or measurement and a failed part does **not** establish a physical root cause. This is an independent portfolio project, not professional manufacturing experience.
