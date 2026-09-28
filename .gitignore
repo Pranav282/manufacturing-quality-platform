@@ -3,3 +3,7 @@ data/raw/
 __pycache__/
 *.pyc
 .env
+
+data/processed/
+*.duckdb
+*.duckdb.wal
