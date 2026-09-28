@@ -1,0 +1,32 @@
+{
+  "created_utc": "2026-09-28T21:14:40.021985+00:00",
+  "source": {
+    "numeric_file": "train_numeric.csv",
+    "numeric_columns": 970,
+    "numeric_header_sha256": "80ede58b94161489f663cf0ef9bb8bfbde71eec3ecfe15c15d2f5f0803013b2c",
+    "date_file": "train_date.csv",
+    "date_columns": 1157,
+    "date_header_sha256": "5772c085f90f37f66f22d0a4fa9fbb1ebd5085c069ef5b22aab33a34885f542f"
+  },
+  "loaded": {
+    "parts": 1183747,
+    "failed_parts": 6879,
+    "station_observations": 14382158,
+    "distinct_stations": 52,
+    "mapped_measurements": 112772532,
+    "mapped_features": 366,
+    "missing_matched_times": 0
+  },
+  "coverage_note": "366 numeric features were loaded with directly matched date columns. 602 other numeric features remain in the raw CSV; their individual measurement times have not been established.",
+  "checks": {
+    "part_count": true,
+    "failure_count": true,
+    "station_count": true,
+    "measurement_count_matches_parquet": true,
+    "mapped_feature_count": true,
+    "matched_times_present": true,
+    "numeric_header_shape": true,
+    "date_header_shape": true
+  },
+  "status": "passed"
+}
