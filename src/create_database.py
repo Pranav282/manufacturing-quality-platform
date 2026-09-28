@@ -13,7 +13,7 @@ def create_tables():
     args = parser.parse_args()
 
     database = Path("data/processed/quality.duckdb")
-    sql = Path(f"sql/create_{args.table}.sql").read_text(encoding="utf-8")
+    sql = Path(f"sql/schema/create_{args.table}.sql").read_text(encoding="utf-8")
     database.parent.mkdir(parents=True, exist_ok=True)
 
     with duckdb.connect(str(database)) as connection:

@@ -70,6 +70,22 @@ duckdb -ui data/processed/quality.duckdb
 Keep the terminal running while using the UI. The UI requires write access to
 store notebooks, so omit `-readonly`. See the [DuckDB UI documentation](https://duckdb.org/docs/current/core_extensions/ui).
 
+## SQL folders
+
+- `sql/schema/`: table definitions.
+- `sql/metrics/`: reusable metric views.
+- `sql/analysis/`: failure, station, and cohort analysis queries.
+- `sql/validation/`: data validation queries.
+
+Run a saved query from the project root:
+
+```powershell
+python run_sql_file.py sql/analysis/check_failure.sql
+```
+
+Table creation commands such as `python src/create_database.py parts` automatically
+read the matching file in `sql/schema/`.
+
 ## Interpretation limits
 
 The dataset’s features and production details are anonymized. An association between a station visit or measurement and a failed part does **not** establish a physical root cause. This is an independent portfolio project, not professional manufacturing experience.
