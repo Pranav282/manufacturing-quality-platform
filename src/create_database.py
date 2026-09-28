@@ -1,11 +1,26 @@
+import argparse
 from pathlib import Path
 
 import duckdb
 
-database = Path("data/processed/quality.duckdb")
-database.parent.mkdir(parents=True, exist_ok=True)
+def create_tables():
+    parser = argparse.ArgumentParser(description="Create a table in the quality database.")
+    parser.add_argument(
+        "table",
+        choices=("parts", "station_visits", "measurements"),
+        help="Table to create",
+    )
+    args = parser.parse_args()
 
-with duckdb.connect(str(database)) as connection:
-    connection.execute(Path("sql/create_tables.sql").read_text())
+    database = Path("data/processed/quality.duckdb")
+    sql = Path(f"sql/create_{args.table}.sql").read_text(encoding="utf-8")
+    database.parent.mkdir(parents=True, exist_ok=True)
 
-print(f"Created tables in {database}")
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(sql)
+
+    print(f"Created table {args.table} in {database}")
+
+
+if __name__ == "__main__":
+    create_tables()

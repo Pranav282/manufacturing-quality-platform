@@ -39,12 +39,27 @@ python -m pip install duckdb
 Create the tables, load the training CSVs, and validate the stored data:
 
 ```powershell
-python src/create_database.py
-python src/load_full.py
+python src/create_database.py parts
+python src/create_database.py station_visits
+python pipelines/load_full.py
 python validations/validate_load.py
 ```
 
 The full loader replaces existing records in `data/processed/quality.duckdb`.
+
+To load each table separately, run the parts pipeline first:
+
+```powershell
+python src/load_parts.py
+python src/load_station_visits.py
+python validations/validate_load.py
+```
+
+The parts pipeline reads `train_numeric.csv`; the station-visits pipeline reads
+`train_date.csv` and checks that its IDs match the loaded parts, regardless of row
+order. Each command replaces only its own table in a transaction. If a separate
+station-visits run fails, the completed parts load remains committed. Use
+`python pipelines/load_full.py` to load both tables in a single transaction instead.
 
 Open the same database in the DuckDB browser UI using the CLI:
 
